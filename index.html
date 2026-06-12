@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Forecast Feature Backfilling</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <h1>I Backfilled the Forecast Before I Used It as a Feature</h1>
+      <p class="subtitle">
+        Rebuilding historical time-series forecasts so a hybrid model can actually learn from them
+      </p>
+      <div class="hero-buttons">
+        <a href="https://github.com/mah-trigui/forecast-feature-backfilling" class="btn primary">View Repository</a>
+        <a href="#idea" class="btn secondary">Explore Method</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <div class="container">
+        <h2>Overview</h2>
+        <p>
+          This project forecasts weekly sea turtle rescue counts across 29 Kenyan capture sites. The modeling system combined a per-site seasonal time-series baseline with a supervised model designed to learn cross-site corrections.
+        </p>
+        <p>
+          The key issue was not the ensemble itself. The real challenge was making the time-series forecast a valid feature for the supervised model.
+        </p>
+        <p>
+          A forecast cannot be used as a training feature if it only exists for the final prediction year. So the forecast was rebuilt historically using expanding-window forecasts for earlier years as well.
+        </p>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container">
+        <h2>Architecture</h2>
+        <img src="images/architecture.jpg" alt="Forecast feature backfilling architecture" class="architecture-image" />
+      </div>
+    </section>
+
+    <section class="section" id="idea">
+      <div class="container">
+        <h2>The Core Idea</h2>
+        <p>
+          The supervised model needed to learn from rows where both of these existed:
+        </p>
+        <ul class="clean-list">
+          <li>a time-series forecast baseline</li>
+          <li>the actual observed rescue count</li>
+        </ul>
+        <p>
+          If the forecast is generated only for 2019, then it exists only in the test period. The correction model has nothing to train on.
+        </p>
+        <div class="metric-box">
+          <p><strong>A forecast becomes a usable feature only after its history is recreated.</strong></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container">
+        <h2>How the feature was backfilled</h2>
+        <p>
+          Per-site STL + ETS forecasts were generated for each target year using only data available before that year:
+        </p>
+        <ul class="clean-list">
+          <li>forecast 2014 using pre-2014 data</li>
+          <li>forecast 2015 using pre-2015 data</li>
+          <li>forecast 2017 using pre-2017 data</li>
+          <li>forecast 2018 using pre-2018 data</li>
+          <li>forecast 2019 using pre-2019 data</li>
+        </ul>
+        <pre>
+md_19 <- forecast_year(df_ts, 2019)
+md_18 <- forecast_year(df_ts, 2018)
+md_17 <- forecast_year(df_ts, 2017)
+md_15 <- forecast_year(df_ts, 2015)
+md_14 <- forecast_year(df_ts, 2014)
+
+ts_forecasts <- rbind(md_19, md_18, md_17, md_15, md_14)
+        </pre>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <h2>How it entered the supervised model</h2>
+        <pre>
+df <- df %>%
+    left_join(ts_forecasts, by = c("CaptureSite", "year", "week_"))
+
+names(df)[which(names(df) == "Capture_Number")] <- "ts_forecast"
+df$ts_forecast[is.na(df$ts_forecast)] <- 0
+        </pre>
+        <p>
+          This allowed CatBoost and XGBoost to learn when site-level and seasonal features should override or trust the baseline forecast.
+        </p>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container">
+        <h2>Why this matters</h2>
+        <ul class="clean-list">
+          <li>prevents using a meta-feature that only exists in the test period</li>
+          <li>creates historically honest training rows for the correction model</li>
+          <li>turns a time-series model from final output into a learnable input</li>
+          <li>generalizes to hybrid forecasting systems beyond this project</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <h2>Selected implementation details</h2>
+        <ul class="clean-list">
+          <li>per-site STL + ETS seasonal forecasting</li>
+          <li>2016 excluded because of structural data distortion</li>
+          <li>forecast outlier capping with guard limits</li>
+          <li>final blend: 70% TS baseline + 30% CatBoost correction</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container">
+        <h2>Key Takeaway</h2>
+        <div class="metric-box">
+          <p><strong>I backfilled the forecast before I used it as a feature.</strong></p>
+          <p>
+            A hybrid model can only learn from a forecast input if that input is generated historically under the same information constraints.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>Built as a public project showcase for historically honest forecast-as-feature design.</p>
+    </div>
+  </footer>
+</body>
+</html>
